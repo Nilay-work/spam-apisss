@@ -3,7 +3,7 @@ import json
 import threading
 import requests
 from byte import Encrypt_ID, encrypt_api
-from spam_count_pb2 import Info  # Protobuf class
+from spam_count_pb2 import Info
 import httpx
 import time
 import re
@@ -19,15 +19,12 @@ import aiohttp
 
 app = Flask(__name__)
 
-# ==== Configuration ====
 freefire_version = "OB51"
 key = bytes([89, 103, 38, 116, 99, 37, 68, 69, 117, 104, 54, 37, 90, 99, 94, 56])
 iv = bytes([54, 111, 121, 90, 68, 114, 50, 50, 69, 51, 121, 99, 104, 106, 77, 37])
 JWT_REGEX = re.compile(r'(eyJ[A-Za-z0-9_\-\.=]+)')
 
-# ==== Token Management ====
 def load_tokens(server_name):
-    """Load tokens for friend request functionality"""
     try:
         server_name = server_name.upper()
         if server_name == "IND":
@@ -51,7 +48,6 @@ def load_tokens(server_name):
         return None
 
 def get_tokens_for_region(region):
-    """Load tokens for clan spam functionality"""
     region = region.upper()
     
     token_filename = f"token_{region.lower()}.json"
@@ -93,7 +89,6 @@ def get_tokens_for_region(region):
     return tokens
 
 def get_jwt_token_from_api(uid, password):
-    """Get JWT token from API"""
     data_param = f"{uid}:{password}"
     url = f"https://api.freefireservice.dnc.su/oauth/account:login?data={data_param}"
     
@@ -129,7 +124,6 @@ def get_jwt_token_from_api(uid, password):
         return None
 
 def get_region_from_jwt(jwt_token):
-    """Extract region from JWT token"""
     try:
         decoded = pyjwt.decode(jwt_token, options={"verify_signature": False})
         lock_region = decoded.get('lock_region', 'IND')
@@ -137,9 +131,7 @@ def get_region_from_jwt(jwt_token):
     except Exception as e:
         return 'IND'
 
-# ==== URL Management ====
 def get_request_url(server_name):
-    """Get friend request URL"""
     if server_name == "IND":
         return "https://client.ind.freefiremobile.com/RequestAddingFriend"
     elif server_name in {"BR", "US", "SAC", "NA"}:
@@ -148,7 +140,6 @@ def get_request_url(server_name):
         return "https://clientbp.ggblueshark.com/RequestAddingFriend"
 
 def get_personal_show_url(server_name):
-    """Get player info URL"""
     if server_name == "IND":
         return "https://client.ind.freefiremobile.com/GetPlayerPersonalShow"
     elif server_name in {"BR", "US", "SAC", "NA"}:
@@ -157,7 +148,6 @@ def get_personal_show_url(server_name):
         return "https://clientbp.ggblueshark.com/GetPlayerPersonalShow"
 
 def get_region_url(region):
-    """Get base URL for clan operations"""
     region = region.upper()
     if region == "IND":
         return "https://client.ind.freefiremobile.com"
@@ -166,9 +156,7 @@ def get_region_url(region):
     else:
         return "https://clientbp.ggblueshark.com/"
 
-# ==== Protobuf Parsing ====
 def parse_protobuf_response(response_data):
-    """Parse protobuf response for friend requests"""
     try:
         info = Info()
         info.ParseFromString(response_data)
@@ -183,9 +171,7 @@ def parse_protobuf_response(response_data):
         print(f"❌ Protobuf parsing error: {e}")
         return None
 
-# ==== Player Info ====
 def get_player_info(uid, token, url):
-    """Get player information"""
     try:
         encrypted = encrypt_api("08" + Encrypt_ID(str(uid)) + "1801")
         headers = {
@@ -201,9 +187,7 @@ def get_player_info(uid, token, url):
         print(f"GetPlayerPersonalShow error: {e}")
     return None
 
-# ==== Friend Request Functions ====
 def send_friend_request(uid, token, url, results):
-    """Send single friend request"""
     encrypted_id = Encrypt_ID(uid)
     payload = f"08a7c4839f1e10{encrypted_id}1801"
     encrypted_payload = encrypt_api(payload)
@@ -231,9 +215,7 @@ def send_friend_request(uid, token, url, results):
         print(f"Request error: {e}")
         results["failed"] += 1
 
-# ==== Clan Spam Functions ====
 def create_join_payload(clan_id):
-    """Create encrypted payload for clan join request"""
     message = reqClan_pb2.MyMessage()
     message.field_1 = int(clan_id)
     serialized_data = message.SerializeToString()
@@ -242,7 +224,6 @@ def create_join_payload(clan_id):
     return encrypted_data
 
 def get_clan_info(base_url, jwt_token, clan_id):
-    """Get clan information"""
     try:
         json_data = json.dumps({"1": int(clan_id), "2": 1})
         my_data = encode_id_clan_pb2.MyData()
@@ -285,7 +266,6 @@ def get_clan_info(base_url, jwt_token, clan_id):
         return {"clan_name": "Unknown", "clan_level": "Unknown"}
 
 async def send_single_join_request(session, base_url, token, encrypted_data, uid):
-    """Send single clan join request"""
     try:
         url = f"{base_url}/RequestJoinClan"
         host = base_url.replace("https://", "")
@@ -316,7 +296,6 @@ async def send_single_join_request(session, base_url, token, encrypted_data, uid
         return {"uid": uid, "status": "failed", "status_code": 500}
 
 async def send_bulk_join_requests(clan_id, region, tokens):
-    """Send bulk clan join requests"""
     base_url = get_region_url(region)
     encrypted_data = create_join_payload(clan_id)
     
@@ -358,10 +337,8 @@ async def send_bulk_join_requests(clan_id, region, tokens):
     
     return results, successful_requests, failed_requests
 
-# ==== Routes ====
 @app.route("/send_request", methods=["GET"])
 def handle_friend_request():
-    """Friend request spam endpoint"""
     uid = request.args.get("uid")
     server_name = request.args.get("server", "").upper()
 
@@ -375,7 +352,6 @@ def handle_friend_request():
     url = get_request_url(server_name)
     personal_show_url = get_personal_show_url(server_name)
 
-    # Try to get player info with first valid token
     player_info = None
     for t in tokens:
         token = t["token"]
@@ -415,7 +391,6 @@ def handle_friend_request():
 
 @app.route('/spam_clan', methods=['GET'])
 def spam_clan():
-    """Clan join spam endpoint"""
     clan_id = request.args.get('id')
     region = request.args.get('region', 'IND').upper()
     
@@ -474,7 +449,6 @@ def spam_clan():
             "error": "Server error"
         }), 500
 
-# ==== Main ====
 if __name__ == "__main__":
     import sys
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
